@@ -1,0 +1,99 @@
+name: Android E2E Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch: {}
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # Generate fingerprint of native code
+      - name: Generate fingerprint
+        id: fingerprint
+        run: |
+          FINGERPRINT=$(npx expo-updates fingerprint:generate --platform android | jq -r '.hash')
+          echo "hash=$FINGERPRINT" >> $GITHUB_OUTPUT
+          echo "Fingerprint: $FINGERPRINT"
+
+      # Check for existing build with same fingerprint
+      - name: Check for existing build
+        id: check
+        run: |
+          BUILD_ID=$(eas build:list \
+            --platform android \
+            --profile ci \
+            --status finished \
+            --limit 20 \
+            --json | jq -r --arg fp "${{ steps.fingerprint.outputs.hash }}" \
+            '.[] | select(.fingerprintHash == $fp) | .id' | head -1)
+
+          if [ -n "$BUILD_ID" ] && [ "$BUILD_ID" != "null" ]; then
+            echo "Found existing build: $BUILD_ID"
+            echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "No existing build with this fingerprint"
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Build only if no existing build found
+      - name: Build APK
+        id: build
+        if: steps.check.outputs.found == 'false'
+        run: |
+          echo "Creating new build..."
+          eas build --platform android --profile ci --non-interactive --wait
+
+          BUILD_ID=$(eas build:list \
+            --platform android \
+            --profile ci \
+            --status finished \
+            --limit 1 \
+            --json | jq -r '.[0].id')
+
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+          echo "Build complete: $BUILD_ID"
+
+      # Download APK
+      - name: Download APK
+        run: |
+          BUILD_ID="${{ steps.check.outputs.build_id || steps.build.outputs.build_id }}"
+          echo "Downloading build: $BUILD_ID"
+          eas build:download --id $BUILD_ID --output app.apk
+          ls -lh app.apk
+
+      # Upload APK as artifact (expires in 1 day)
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestHive-${{ github.sha }}.apk
+          path: ./app.apk
+          retention-days: 1

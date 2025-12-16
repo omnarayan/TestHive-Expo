@@ -1,0 +1,28 @@
+appId: com.testhiveapp
+---
+# Test: Login flow
+
+- launchApp
+- waitForAnimationToEnd
+
+# Enter credentials
+- tapOn:
+    text: "Username"
+    optional: true
+- inputText: "devicelab"
+
+- tapOn:
+    text: "Password"
+    optional: true
+- inputText: "robustest"
+
+# Submit login
+- tapOn:
+    text: "Login"
+
+# Wait for products to load
+- waitForAnimationToEnd
+
+# Verify we see products (Maestro is in the product list)
+- assertVisible:
+    text: "Maestro"

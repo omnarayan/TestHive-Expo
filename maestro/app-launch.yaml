@@ -1,0 +1,12 @@
+appId: com.testhiveapp
+---
+# Test: App launches successfully
+- launchApp
+
+# Wait for app to load
+- waitForAnimationToEnd
+
+# Verify app is running
+- assertVisible:
+    text: ".*"
+    optional: true

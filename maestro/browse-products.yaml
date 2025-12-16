@@ -1,0 +1,38 @@
+appId: com.testhiveapp
+---
+# Test: Browse products after login
+
+- launchApp
+- waitForAnimationToEnd
+
+# Login first
+- tapOn:
+    text: "Username"
+    optional: true
+- inputText: "a"
+
+- tapOn:
+    text: "Password"
+    optional: true
+- inputText: "a"
+
+- tapOn:
+    text: "Login"
+
+- waitForAnimationToEnd
+
+# Verify products are visible
+- assertVisible:
+    text: "Appium"
+
+- assertVisible:
+    text: "Maestro"
+
+- assertVisible:
+    text: "Espresso"
+
+# Scroll to see more products
+- scroll
+
+- assertVisible:
+    text: "Selenium"
