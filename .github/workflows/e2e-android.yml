@@ -116,18 +116,18 @@ jobs:
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "Build complete: $BUILD_ID"
 
-      # Download APK
+      # Download APK using fingerprint
       - name: Download APK
         run: |
-          BUILD_ID="${{ steps.check.outputs.build_id || steps.build.outputs.build_id }}"
+          FINGERPRINT="${{ steps.fingerprint.outputs.hash }}"
 
-          if [ -z "$BUILD_ID" ]; then
-            echo "No build ID available"
+          if [ -z "$FINGERPRINT" ]; then
+            echo "No fingerprint available, cannot download"
             exit 1
           fi
 
-          echo "Downloading build: $BUILD_ID"
-          eas build:download --id $BUILD_ID --output app.apk
+          echo "Downloading build with fingerprint: $FINGERPRINT"
+          eas build:download --fingerprint "$FINGERPRINT" --platform android --output app.apk
           ls -lh app.apk
 
       # Upload APK as artifact (expires in 1 day)
