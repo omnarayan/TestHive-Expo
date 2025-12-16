@@ -39,21 +39,46 @@ jobs:
       - name: Generate fingerprint
         id: fingerprint
         run: |
-          FINGERPRINT=$(npx expo-updates fingerprint:generate --platform android | jq -r '.hash')
-          echo "hash=$FINGERPRINT" >> $GITHUB_OUTPUT
-          echo "Fingerprint: $FINGERPRINT"
+          FINGERPRINT=$(npx expo-updates fingerprint:generate --platform android 2>/dev/null | jq -r '.hash' 2>/dev/null || echo "")
+          if [ -z "$FINGERPRINT" ]; then
+            echo "Could not generate fingerprint, will build fresh"
+            echo "hash=" >> $GITHUB_OUTPUT
+          else
+            echo "hash=$FINGERPRINT" >> $GITHUB_OUTPUT
+            echo "Fingerprint: $FINGERPRINT"
+          fi
 
       # Check for existing build with same fingerprint
       - name: Check for existing build
         id: check
         run: |
-          BUILD_ID=$(eas build:list \
+          # Get build list as JSON
+          BUILD_JSON=$(eas build:list \
             --platform android \
             --profile ci \
             --status finished \
             --limit 20 \
-            --json | jq -r --arg fp "${{ steps.fingerprint.outputs.hash }}" \
-            '.[] | select(.fingerprintHash == $fp) | .id' | head -1)
+            --non-interactive \
+            --json 2>/dev/null || echo "[]")
+
+          # Validate JSON
+          if ! echo "$BUILD_JSON" | jq empty 2>/dev/null; then
+            echo "Invalid JSON from build:list, will build fresh"
+            echo "found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if we have a fingerprint to match
+          FINGERPRINT="${{ steps.fingerprint.outputs.hash }}"
+          if [ -z "$FINGERPRINT" ]; then
+            echo "No fingerprint, will build fresh"
+            echo "found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Find matching build (note: .fingerprint.hash not .fingerprintHash)
+          BUILD_ID=$(echo "$BUILD_JSON" | jq -r --arg fp "$FINGERPRINT" \
+            '.[] | select(.fingerprint.hash == $fp) | .id' | head -1)
 
           if [ -n "$BUILD_ID" ] && [ "$BUILD_ID" != "null" ]; then
             echo "Found existing build: $BUILD_ID"
@@ -67,17 +92,26 @@ jobs:
       # Build only if no existing build found
       - name: Build APK
         id: build
-        if: steps.check.outputs.found == 'false'
+        if: steps.check.outputs.found != 'true'
         run: |
           echo "Creating new build..."
           eas build --platform android --profile ci --non-interactive --wait
 
-          BUILD_ID=$(eas build:list \
+          # Get the build ID
+          BUILD_JSON=$(eas build:list \
             --platform android \
             --profile ci \
             --status finished \
             --limit 1 \
-            --json | jq -r '.[0].id')
+            --non-interactive \
+            --json 2>/dev/null || echo "[]")
+
+          BUILD_ID=$(echo "$BUILD_JSON" | jq -r '.[0].id' 2>/dev/null || echo "")
+
+          if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "null" ]; then
+            echo "Failed to get build ID"
+            exit 1
+          fi
 
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "Build complete: $BUILD_ID"
@@ -86,6 +120,12 @@ jobs:
       - name: Download APK
         run: |
           BUILD_ID="${{ steps.check.outputs.build_id || steps.build.outputs.build_id }}"
+
+          if [ -z "$BUILD_ID" ]; then
+            echo "No build ID available"
+            exit 1
+          fi
+
           echo "Downloading build: $BUILD_ID"
           eas build:download --id $BUILD_ID --output app.apk
           ls -lh app.apk
