@@ -116,7 +116,7 @@ jobs:
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "Build complete: $BUILD_ID"
 
-      # Download APK using fingerprint
+      # Download APK using artifact URL from build list
       - name: Download APK
         run: |
           FINGERPRINT="${{ steps.fingerprint.outputs.hash }}"
@@ -126,8 +126,23 @@ jobs:
             exit 1
           fi
 
-          echo "Downloading build with fingerprint: $FINGERPRINT"
-          eas build:download --fingerprint "$FINGERPRINT" --platform android --output app.apk
+          echo "Getting APK URL for fingerprint: $FINGERPRINT"
+          APK_URL=$(eas build:list \
+            --platform android \
+            --profile ci \
+            --status finished \
+            --limit 20 \
+            --non-interactive \
+            --json | jq -r --arg fp "$FINGERPRINT" \
+            '.[] | select(.fingerprint.hash == $fp) | .artifacts.buildUrl' | head -1)
+
+          if [ -z "$APK_URL" ] || [ "$APK_URL" = "null" ]; then
+            echo "Could not find APK URL"
+            exit 1
+          fi
+
+          echo "Downloading from: $APK_URL"
+          curl -L -o app.apk "$APK_URL"
           ls -lh app.apk
 
       # Upload APK as artifact (expires in 1 day)

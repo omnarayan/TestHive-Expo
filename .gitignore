@@ -42,3 +42,4 @@ CLAUDE.md
 # generated native folders
 /ios
 /android
+*.apk
